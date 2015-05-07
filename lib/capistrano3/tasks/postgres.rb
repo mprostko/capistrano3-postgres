@@ -6,6 +6,7 @@ namespace :load do
     set :postgres_remote_sqlc_file_path, -> { nil }
     set :postgres_local_database_config, -> { nil }
     set :postgres_remote_database_config, -> { nil }
+    set :dotenv_file, -> { '.env' }
   end
 end
 
@@ -24,7 +25,7 @@ namespace :postgres do
           set :postgres_remote_sqlc_file_path, "#{shared_path}/#{fetch(:postgres_backup_dir)}/#{file_name}"
         end
 
-        execute :pg_dump, "-U #{config['user'] || config['username']} -h #{config['host']} -Fc --file=#{fetch(:postgres_remote_sqlc_file_path)} #{config['database']}" do |ch, stream, out|
+        execute :pg_dump, "-U #{config['user'] || config['username'] || config['default_user']} -h #{config['host']} -Fc --file=#{fetch(:postgres_remote_sqlc_file_path)} #{config['database']}" do |ch, stream, out|
           ch.send_data "#{config['password']}\n" if out =~ /^Password:/
         end
       end
@@ -56,7 +57,7 @@ namespace :postgres do
           file_name = capture("ls -v tmp/#{fetch :postgres_backup_dir}").split(/\n/).last
           file_path = "tmp/#{fetch :postgres_backup_dir}/#{file_name}"
           begin
-            execute :pg_restore, "-c -U #{config['user'] || config['username']} -W --no-owner -h #{config['host']} -d #{fetch(:database_name)} #{file_path}" do |ch, stream, out|
+            execute :pg_restore, "-c -U #{config['user'] || config['username'] || config['default_user']} -W --no-owner -h #{config['host']} -d #{fetch(:database_name)} #{file_path}" do |ch, stream, out|
               ch.send_data "#{config['password']}\n" if out =~ /^Password:/
             end
           rescue SSHKit::Command::Failed => e
@@ -85,6 +86,7 @@ namespace :postgres do
   end
 
   desc 'Replecate database locally'
+  
   task :replicate do
     grab_local_database_config
     config = fetch(:postgres_local_database_config)
@@ -94,6 +96,10 @@ namespace :postgres do
     invoke "postgres:backup:import"
   end
 
+  require 'dotenv'
+  require 'erb'
+  require 'tempfile'
+
   # Grabs local database config before importing dump
   def grab_local_database_config
     return if fetch(:postgres_local_database_config)
@@ -101,6 +107,13 @@ namespace :postgres do
       run_locally do
         env = 'development'
         yaml_content = capture "cat config/database.yml"
+
+        env_file_contents = capture "cat #{fetch(:dotenv_file)}"
+        tmp_file = Tempfile.new('cap_pgdump_env').write(env_file_contents).close
+        Dotenv.load tmp_file.path # has to be a file, no string parse support afaik
+        yaml_content = ERB.new(yaml_content).result
+        tmp_file.unlink
+      
         set :postgres_local_database_config,  database_config_defaults.merge(YAML::load(yaml_content)[env])
       end
     end
@@ -112,12 +125,19 @@ namespace :postgres do
     on roles(fetch(:postgres_role)) do |role|
       env = fetch(:postgres_env).to_s.downcase
       yaml_content = capture "cat #{deploy_to}/current/config/database.yml"
+      
+      env_file_contents = capture "cat #{deploy_to}/current/#{fetch(:dotenv_file)}"
+      tmp_file = Tempfile.new('cap_pgdump_env').write(env_file_contents).close
+      Dotenv.load tmp_file.path # has to be a file, no string parse support afaik
+      yaml_content = ERB.new(yaml_content).result
+      tmp_file.unlink
+      
       set :postgres_remote_database_config,  database_config_defaults.merge(YAML::load(yaml_content)[env])
     end
   end
 
   def database_config_defaults
-    { 'host' => 'localhost', 'user' => 'postgres' }
+    { 'default_host' => 'localhost', 'default_user' => 'postgres' }
   end
 
 end
