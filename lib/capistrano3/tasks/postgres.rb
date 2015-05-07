@@ -109,7 +109,8 @@ namespace :postgres do
         yaml_content = capture "cat config/database.yml"
 
         env_file_contents = capture "cat #{fetch(:dotenv_file)}"
-        tmp_file = Tempfile.new('cap_pgdump_env').write(env_file_contents).close
+        tmp_file = Tempfile.new('cap_pgdump_env')
+        tmp_file.write(env_file_contents).close
         Dotenv.load tmp_file.path # has to be a file, no string parse support afaik
         yaml_content = ERB.new(yaml_content).result
         tmp_file.unlink
@@ -127,7 +128,8 @@ namespace :postgres do
       yaml_content = capture "cat #{deploy_to}/current/config/database.yml"
       
       env_file_contents = capture "cat #{deploy_to}/current/#{fetch(:dotenv_file)}"
-      tmp_file = Tempfile.new('cap_pgdump_env').write(env_file_contents).close
+      tmp_file = Tempfile.new('cap_pgdump_env')
+      tmp_file.write(env_file_contents).close
       Dotenv.load tmp_file.path # has to be a file, no string parse support afaik
       yaml_content = ERB.new(yaml_content).result
       tmp_file.unlink
